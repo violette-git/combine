@@ -161,11 +161,12 @@ def _get_vcvars_env(vs_path):
         print(f"  vcvarsall.bat not found at: {vcvarsall}")
         return None
     print(f"  Running vcvarsall.bat x64...")
-    # Use `call` so vcvarsall output goes to stdout (captured), then `set` dumps the env.
-    # Don't redirect to nul — we need to see errors if it fails.
+    # shell=True passes the string directly to cmd.exe, avoiding quote mangling
+    # that happens when subprocess receives a list with embedded quoted paths.
     cmd = f'call "{vcvarsall}" x64 && set'
     r = subprocess.run(
-        ["cmd", "/c", cmd],
+        cmd,
+        shell=True,
         capture_output=True,
         text=True,
         errors="replace",
