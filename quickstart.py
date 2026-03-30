@@ -151,32 +151,16 @@ def clone_powerinfer():
         run(["git", "clone", POWERINFER_REPO, POWERINFER_DIR])
 
 
-def _find_vs_generator():
-    """Return the best available Visual Studio cmake generator name, or None."""
-    candidates = [
-        ("17", "2022"),
-        ("16", "2019"),
-        ("15", "2017"),
-    ]
-    for version, year in candidates:
-        # Check if VS install exists via vswhere
-        vswhere = os.path.join(
-            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-            r"Microsoft Visual Studio\Installer\vswhere.exe",
-        )
-        if os.path.isfile(vswhere):
-            r = subprocess.run(
-                [vswhere, "-version", f"[{version},", "-property", "installationPath"],
-                capture_output=True, text=True,
-            )
-            if r.stdout.strip():
-                return f"Visual Studio {version} {year}"
-        # Fallback: check common install dirs
-        for prog in [r"C:\Program Files", r"C:\Program Files (x86)"]:
-            vs_dir = os.path.join(prog, f"Microsoft Visual Studio\\{year}")
-            if os.path.isdir(vs_dir):
-                return f"Visual Studio {version} {year}"
-    return None
+def _ensure_ninja():
+    """Install ninja build system via pip if not already present. Returns True if available."""
+    if shutil.which("ninja"):
+        return True
+    print("  Installing ninja build system...")
+    try:
+        pip("install", "ninja")
+        return bool(shutil.which("ninja"))
+    except subprocess.CalledProcessError:
+        return False
 
 
 def build_powerinfer(has_nvidia, force_cpu):
@@ -215,12 +199,11 @@ def build_powerinfer(has_nvidia, force_cpu):
     ]
 
     # On Windows, cmake defaults to NMake which requires a Developer shell.
-    # Explicitly pick a Visual Studio generator so it works from any terminal.
+    # Use Ninja instead — it works with VS Build Tools from any terminal.
     if platform.system() == "Windows":
-        generator = _find_vs_generator()
-        if generator:
-            cmake_args += ["-G", generator]
-            print(f"  Using generator: {generator}")
+        if _ensure_ninja():
+            cmake_args += ["-G", "Ninja"]
+            print("  Using Ninja generator.")
 
     if force_cpu:
         print("  Building CPU-only (--cpu-only).")
@@ -293,8 +276,12 @@ def _print_cmake_help():
 
 def install_package():
     banner("Step 4/4: Installing powerquant package")
-    # Ensure setuptools is new enough to support editable installs via pyproject.toml
-    pip("install", "--upgrade", "setuptools>=68", "pip")
+    # Ensure setuptools is new enough to support editable installs via pyproject.toml.
+    # Upgrade separately so a failure on one doesn't block the other.
+    try:
+        pip("install", "--upgrade", "setuptools>=68")
+    except subprocess.CalledProcessError:
+        pass
     pip("install", "-e", REPO_ROOT)
 
 
@@ -373,4 +360,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\nInstallation interrupted.")
+        sys.exit(1)
