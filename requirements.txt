@@ -1,0 +1,10 @@
+# Core ML
+torch>=2.0.0
+scipy>=1.10.0
+numpy>=1.24.0
+
+# HuggingFace stack
+transformers>=4.40.0
+accelerate>=0.25.0
+bitsandbytes>=0.43.0    # 4-bit / 8-bit weight quantization
+sentencepiece>=0.1.98   # tokenizer for many models

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "powerquant"
+version = "0.1.0"
+description = "Efficient LLM inference: PowerInfer sparse activation + TurboQuant KV compression"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "torch>=2.0.0",
+    "scipy>=1.10.0",
+    "numpy>=1.24.0",
+    "transformers>=4.40.0",
+    "accelerate>=0.25.0",
+    "bitsandbytes>=0.43.0",
+    "sentencepiece>=0.1.98",
+]
+
+[project.scripts]
+powerquant = "powerquant.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["powerquant*"]
