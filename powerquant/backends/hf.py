@@ -119,13 +119,38 @@ class HFBackend:
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_use_double_quant=True,
             )
-            model_kwargs["torch_dtype"] = torch.float16
+            model_kwargs["dtype"] = torch.float16
         elif self._load_in_8bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
         elif self._torch_dtype != "auto":
-            model_kwargs["torch_dtype"] = getattr(torch, self._torch_dtype)
+            model_kwargs["dtype"] = getattr(torch, self._torch_dtype)
 
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
+        try:
+            self.model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
+        except ValueError as e:
+            if "dispatched on the CPU" in str(e) and (self._load_in_4bit or self._load_in_8bit):
+                # Model too large for GPU alone — enable CPU offloading and retry.
+                print(
+                    "  Model doesn't fit in GPU VRAM alone. "
+                    "Enabling CPU offload (slower but will work)..."
+                )
+                model_kwargs["device_map"] = "auto"
+                if self._load_in_4bit:
+                    model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=torch.float16,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_use_double_quant=True,
+                        llm_int8_enable_fp32_cpu_offload=True,
+                    )
+                elif self._load_in_8bit:
+                    model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                        load_in_8bit=True,
+                        llm_int8_enable_fp32_cpu_offload=True,
+                    )
+                self.model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
+            else:
+                raise
         self.model.eval()
 
         n_layers = getattr(self.model.config, "num_hidden_layers", 32)
