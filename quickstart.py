@@ -151,6 +151,42 @@ def clone_powerinfer():
         run(["git", "clone", POWERINFER_REPO, POWERINFER_DIR])
 
 
+def _find_msvc_include_dir(cl_path):
+    """Return MSVC include dir given cl.exe path, or None."""
+    # cl.exe: VC/Tools/MSVC/<ver>/bin/Hostx64/x64/cl.exe
+    # include: VC/Tools/MSVC/<ver>/include/
+    msvc_ver_dir = os.path.dirname(os.path.dirname(os.path.dirname(cl_path)))
+    inc_dir = os.path.join(msvc_ver_dir, "include")
+    return inc_dir if os.path.isdir(inc_dir) else None
+
+
+def _find_winsdk_include_dirs():
+    """Return Windows SDK include dirs (ucrt, um, shared) for the latest SDK."""
+    for prog_root in [
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        os.environ.get("ProgramFiles", r"C:\Program Files"),
+    ]:
+        kits_inc = os.path.join(prog_root, "Windows Kits", "10", "include")
+        if not os.path.isdir(kits_inc):
+            continue
+        try:
+            versions = sorted(
+                [v for v in os.listdir(kits_inc) if v.startswith("10.")],
+                reverse=True,
+            )
+        except OSError:
+            continue
+        for ver in versions:
+            dirs = [
+                os.path.join(kits_inc, ver, sub)
+                for sub in ["ucrt", "um", "shared", "winrt"]
+                if os.path.isdir(os.path.join(kits_inc, ver, sub))
+            ]
+            if dirs:
+                return dirs
+    return []
+
+
 def _find_winsdk_lib_dirs():
     """Return list of Windows SDK lib directories for x64 (um and ucrt)."""
     dirs = []
@@ -340,13 +376,19 @@ def build_powerinfer(has_nvidia, force_cpu):
             vcvars_env = _get_vcvars_env(vs_path)
             if vcvars_env:
                 extra_env = vcvars_env  # includes PATH, INCLUDE, LIB, LIBPATH
-                # Augment LIB explicitly — vcvarsall sometimes omits SDK lib dirs.
-                lib_dirs = _find_msvc_lib_dir(cl)
-                lib_dirs = ([lib_dirs] if lib_dirs else []) + _find_winsdk_lib_dirs()
+                # Set INCLUDE and LIB explicitly — vcvarsall output sometimes
+                # loses these through subprocess encoding/parsing issues.
+                msvc_inc = _find_msvc_include_dir(cl)
+                inc_dirs = ([msvc_inc] if msvc_inc else []) + _find_winsdk_include_dirs()
+                if inc_dirs:
+                    extra_env["INCLUDE"] = ";".join(inc_dirs)
+                    print(f"  INCLUDE: {extra_env['INCLUDE'][:100]}...")
+
+                msvc_lib = _find_msvc_lib_dir(cl)
+                lib_dirs = ([msvc_lib] if msvc_lib else []) + _find_winsdk_lib_dirs()
                 if lib_dirs:
-                    existing = extra_env.get("LIB", os.environ.get("LIB", ""))
-                    extra_env["LIB"] = ";".join(lib_dirs) + (";" + existing if existing else "")
-                    print(f"  LIB set to: {extra_env['LIB'][:120]}...")
+                    extra_env["LIB"] = ";".join(lib_dirs)
+                    print(f"  LIB: {extra_env['LIB'][:100]}...")
                 if _ensure_ninja():
                     cmake_args += ["-G", "Ninja"]
                     print("  Using Ninja + MSVC.")
