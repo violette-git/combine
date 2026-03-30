@@ -189,6 +189,29 @@ def _get_vcvars_env(vs_path):
     return env
 
 
+def _find_winsdk_tool(tool):
+    """Find a Windows SDK tool (rc.exe, mt.exe) under Windows Kits/10/bin."""
+    for prog_root in [
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        os.environ.get("ProgramFiles", r"C:\Program Files"),
+    ]:
+        kits_bin = os.path.join(prog_root, "Windows Kits", "10", "bin")
+        if not os.path.isdir(kits_bin):
+            continue
+        try:
+            versions = sorted(
+                [v for v in os.listdir(kits_bin) if v.startswith("10.")],
+                reverse=True,
+            )
+        except OSError:
+            continue
+        for ver in versions:
+            path = os.path.join(kits_bin, ver, "x64", tool)
+            if os.path.isfile(path):
+                return path
+    return None
+
+
 def _find_vs_install():
     """Return VS install path via vswhere, or None."""
     vswhere = os.path.join(
@@ -264,6 +287,10 @@ def build_powerinfer(has_nvidia, force_cpu):
                 pass
 
     build_dir = os.path.join(POWERINFER_DIR, "build")
+    # Remove stale build dir so cmake doesn't reuse a broken cache.
+    if os.path.isdir(build_dir):
+        print("  Removing stale build directory...")
+        shutil.rmtree(build_dir, ignore_errors=True)
     cmake_args = [
         "cmake", "-S", POWERINFER_DIR, "-B", build_dir,
         "-DCMAKE_BUILD_TYPE=Release",
@@ -281,6 +308,16 @@ def build_powerinfer(has_nvidia, force_cpu):
                 if _ensure_ninja():
                     cmake_args += ["-G", "Ninja"]
                     print("  Using Ninja + MSVC.")
+                # Pass rc.exe and mt.exe explicitly — they live in the Windows SDK
+                # bin dir which sometimes isn't in the vcvarsall PATH.
+                rc = _find_winsdk_tool("rc.exe")
+                mt = _find_winsdk_tool("mt.exe")
+                if rc:
+                    cmake_args.append(f"-DCMAKE_RC_COMPILER={rc}")
+                    print(f"  Found rc.exe: {rc}")
+                if mt:
+                    cmake_args.append(f"-DCMAKE_MT={mt}")
+                    print(f"  Found mt.exe: {mt}")
             else:
                 print("  WARNING: vcvarsall.bat failed — falling back to GCC.")
                 cl = None
