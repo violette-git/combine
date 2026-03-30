@@ -82,8 +82,8 @@ minimal impact on generation quality.
 | cmake | 3.17+ (for PowerInfer build) |
 | C++ compiler | GCC 9+ / Clang 12+ / MSVC 2019+ |
 
-PowerInfer requires a compiled C++ binary. The `install.sh` script handles
-cloning, configuring, and building it automatically.
+PowerInfer requires a compiled C++ binary. `quickstart.py` handles cloning,
+configuring, and building it automatically.
 
 TurboQuant (HF backend) works CPU-only, but GPU is strongly recommended for
 practical inference speeds.
@@ -92,89 +92,53 @@ practical inference speeds.
 
 ## Installation
 
-### Windows
+### One command, any OS, any terminal
 
-> **Which terminal are you using?**
->
-> | Terminal | Installer to use |
-> |----------|-----------------|
-> | **Git Bash** (the bash prompt that comes with Git for Windows — shows `MINGW64`) | `bash install.sh` |
-> | **Command Prompt** (`cmd.exe`) | `install.bat` |
-> | **PowerShell** | `.\install.bat` |
->
-> `.bat` files **cannot** be run from Git Bash. Use `bash install.sh` there.
-
-**Step 1 — Prerequisites** (one-time setup, skip anything already installed)
-
-| Tool | Install command | Why needed |
-|------|----------------|------------|
-| Python 3.10+ | `winget install Python.Python.3.11` | required |
-| Git | `winget install Git.Git` | required |
-| cmake | `winget install Kitware.CMake` | PowerInfer C++ build only |
-| VS Build Tools | `winget install Microsoft.VisualStudio.2022.BuildTools` | PowerInfer C++ build only |
-
-For VS Build Tools, after installing run the **Visual Studio Installer** and
-select the **"Desktop development with C++"** workload. Close and reopen your
-terminal so the new PATH entries take effect.
-
-**Step 2 — Clone and install**
-
-Git Bash:
-```bash
+```
 git clone https://github.com/violette-git/combine
 cd combine
-bash install.sh
+python quickstart.py
 ```
 
-Command Prompt / PowerShell:
-```bat
-git clone https://github.com/violette-git/combine
-cd combine
-install.bat
-```
+That's it. Works on Windows (Git Bash, cmd, PowerShell), macOS, and Linux.
+Python is the only prerequisite — you almost certainly already have it.
 
-**No cmake / VS Build Tools yet?** Skip the C++ build — the HuggingFace + TurboQuant
-backend works immediately without PowerInfer:
+**Options:**
 
-Git Bash:
-```bash
-bash install.sh --skip-powerinfer
-```
-Command Prompt:
-```bat
-install.bat --skip-powerinfer
-```
+| Flag | Effect |
+|------|--------|
+| `--cuda` | Force CUDA PyTorch even if GPU not auto-detected |
+| `--cpu-only` | Force CPU-only install |
+| `--skip-build` | Skip PowerInfer C++ build (HuggingFace backend still works) |
 
-You can always add PowerInfer later by re-running without `--skip-powerinfer` once cmake is installed.
+**No cmake yet?** Just run `python quickstart.py --skip-build` — the
+HuggingFace + TurboQuant backend works immediately. Install cmake later and
+re-run without `--skip-build` to add the PowerInfer backend.
 
 ---
 
-### Linux / macOS
+### Prerequisites
 
-**Prerequisites (Linux):**
-```bash
-# Ubuntu/Debian
-sudo apt-get install cmake build-essential python3 python3-pip git
+Only **Python 3.10+** and **Git** are required to get started.
 
-# Fedora
-sudo dnf install cmake gcc-c++ python3 python3-pip git
+cmake and a C++ compiler are only needed if you want the PowerInfer backend:
 
-# Arch
-sudo pacman -S cmake base-devel python python-pip git
-```
+| Tool | Windows | macOS | Linux |
+|------|---------|-------|-------|
+| Python 3.10+ | `winget install Python.Python.3.11` | `brew install python` | `sudo apt install python3` |
+| Git | `winget install Git.Git` | `brew install git` | `sudo apt install git` |
+| cmake *(optional)* | `winget install Kitware.CMake` | `brew install cmake` | `sudo apt install cmake` |
+| C++ compiler *(optional)* | `winget install Microsoft.VisualStudio.2022.BuildTools` | `xcode-select --install` | `sudo apt install build-essential` |
 
-**Prerequisites (macOS):**
-```bash
-xcode-select --install   # installs clang + make
-brew install cmake python git
-```
+For VS Build Tools on Windows, after installing open the **Visual Studio Installer**
+and select **"Desktop development with C++"**. Close and reopen your terminal.
 
-**Install:**
-```bash
-git clone https://github.com/violette-git/combine
-cd combine
-bash install.sh
-```
+---
+
+### Legacy shell installers
+
+`install.sh` (bash) and `install.bat` (Windows cmd) are still available but
+`python quickstart.py` is simpler and recommended.
 
 **Options:**
 ```bash
