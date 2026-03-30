@@ -361,18 +361,24 @@ def cmd_build(args):
 
 def cmd_info(args):
     import platform
+    import shutil
+    import subprocess
+    from pathlib import Path
     from . import __version__
 
-    W = 54
+    W = 60
     print(f"\n{'─'*W}")
     print(f"  PowerQuant v{__version__}")
     print(f"{'─'*W}")
     print(f"  Python    : {sys.version.split()[0]}")
     print(f"  Platform  : {platform.system()} {platform.machine()}")
 
+    # ── PyTorch + CUDA ────────────────────────────────────────────
     try:
         import torch
-        print(f"  PyTorch   : {torch.__version__}")
+        cuda_build = torch.version.cuda or "none"
+        print(f"  PyTorch   : {torch.__version__}  (built for CUDA {cuda_build})")
+
         if torch.cuda.is_available():
             for i in range(torch.cuda.device_count()):
                 props = torch.cuda.get_device_properties(i)
@@ -380,10 +386,12 @@ def cmd_info(args):
                 free_mb = (props.total_memory - torch.cuda.memory_allocated(i)) // (1024 * 1024)
                 print(f"    GPU {i}  : {props.name}  ({total_gb:.1f} GB total, {free_mb} MB free)")
         else:
-            print("  GPU       : not available (CPU only)")
+            print("  CUDA      : not available to PyTorch")
+            _print_cuda_diagnosis()
     except ImportError:
         print("  PyTorch   : not installed")
 
+    # ── Other packages ────────────────────────────────────────────
     try:
         import transformers
         print(f"  Transformers : {transformers.__version__}")
@@ -394,8 +402,9 @@ def cmd_info(args):
         import bitsandbytes
         print(f"  bitsandbytes : {bitsandbytes.__version__}")
     except ImportError:
-        print("  bitsandbytes : not installed (4-bit/8-bit weights unavailable)")
+        print("  bitsandbytes : not installed  (--load-in-4bit / --load-in-8bit unavailable)")
 
+    # ── PowerInfer ────────────────────────────────────────────────
     from .backends.powerinfer import PowerInferBackend
     pi = PowerInferBackend()
     if pi.is_available:
@@ -404,6 +413,64 @@ def cmd_info(args):
         print("  PowerInfer   : not built  (run: powerquant build)")
 
     print(f"{'─'*W}\n")
+
+
+def _print_cuda_diagnosis():
+    """Print hints for why CUDA may not be visible to PyTorch."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    print()
+    print("  ── GPU diagnosis ────────────────────────────────────────")
+
+    # Check nvidia-smi in PATH
+    smi_path = shutil.which("nvidia-smi") or shutil.which("nvidia-smi.exe")
+
+    # Check common Windows install path
+    win_smi = Path("C:/Program Files/NVIDIA Corporation/NVSMI/nvidia-smi.exe")
+    if smi_path:
+        print(f"  nvidia-smi found : {smi_path}")
+        try:
+            out = subprocess.check_output([smi_path, "--query-gpu=name,memory.total",
+                                           "--format=csv,noheader"],
+                                          stderr=subprocess.DEVNULL, text=True).strip()
+            for line in out.splitlines():
+                print(f"    {line}")
+        except Exception:
+            pass
+    elif win_smi.exists():
+        print(f"  nvidia-smi found : {win_smi}  (not in PATH)")
+        try:
+            out = subprocess.check_output([str(win_smi), "--query-gpu=name,memory.total",
+                                           "--format=csv,noheader"],
+                                          stderr=subprocess.DEVNULL, text=True).strip()
+            for line in out.splitlines():
+                print(f"    {line}")
+        except Exception:
+            pass
+    else:
+        print("  nvidia-smi       : not found")
+
+    # Check installed PyTorch CUDA build
+    try:
+        import torch
+        if torch.version.cuda:
+            print(f"  PyTorch CUDA     : built for CUDA {torch.version.cuda}")
+            print("  Possible causes:")
+            print("    1. NVIDIA driver is older than the CUDA version PyTorch needs")
+            print("       → Update driver: https://nvidia.com/drivers")
+            print("    2. PyTorch was installed without CUDA support")
+            print("       → Reinstall: pip install torch --index-url https://download.pytorch.org/whl/cu128")
+            print("    3. CUDA toolkit version mismatch")
+            print("       → Check: nvidia-smi  (top-right shows max CUDA version supported)")
+        else:
+            print("  PyTorch CUDA     : not built (CPU-only wheel installed)")
+            print("  Fix: pip install torch --index-url https://download.pytorch.org/whl/cu128")
+    except ImportError:
+        pass
+
+    print()
 
 
 # ── argument helpers ──────────────────────────────────────────────────────────

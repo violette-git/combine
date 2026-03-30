@@ -3,6 +3,7 @@ REM PowerQuant installer for Windows (Command Prompt / PowerShell)
 REM
 REM Usage:
 REM   install.bat                    full install (auto-detects GPU)
+REM   install.bat --cuda             force CUDA PyTorch even if GPU not detected
 REM   install.bat --skip-powerinfer  Python + TurboQuant only, skip C++ build
 REM   install.bat --cpu-only         Force CPU-only build of PowerInfer
 REM
@@ -21,10 +22,12 @@ set POWERINFER_DIR=%VENDOR_DIR%\PowerInfer
 set POWERINFER_REPO=https://github.com/Tiiny-AI/PowerInfer
 set SKIP_POWERINFER=0
 set CPU_ONLY=0
+set FORCE_CUDA=0
 
 for %%A in (%*) do (
     if "%%A"=="--skip-powerinfer" set SKIP_POWERINFER=1
     if "%%A"=="--cpu-only" set CPU_ONLY=1
+    if "%%A"=="--cuda" set FORCE_CUDA=1
 )
 
 echo.
@@ -40,20 +43,57 @@ echo === Step 1/4: Installing Python dependencies ===
 echo.
 
 REM Detect NVIDIA GPU
+REM On laptops, nvidia-smi.exe is often NOT in PATH — check known locations too.
 set HAS_NVIDIA=0
-if %CPU_ONLY%==0 (
-    nvidia-smi >nul 2>&1 && set HAS_NVIDIA=1
+
+if %FORCE_CUDA%==1 (
+    echo --cuda flag set: forcing CUDA PyTorch install.
+    set HAS_NVIDIA=1
+    goto :pytorch_install
 )
 
+if %CPU_ONLY%==1 goto :pytorch_install
+
+REM 1) Try PATH
+nvidia-smi >nul 2>&1
+if not errorlevel 1 (
+    set HAS_NVIDIA=1
+    echo NVIDIA GPU detected via PATH.
+    goto :pytorch_install
+)
+
+REM 2) Common Windows install path (often missing from PATH on laptops)
+if exist "%PROGRAMFILES%\NVIDIA Corporation\NVSMI\nvidia-smi.exe" (
+    "%PROGRAMFILES%\NVIDIA Corporation\NVSMI\nvidia-smi.exe" >nul 2>&1
+    if not errorlevel 1 (
+        set HAS_NVIDIA=1
+        echo NVIDIA GPU detected via NVSMI directory.
+        goto :pytorch_install
+    )
+)
+
+REM 3) Fallback: query Windows device list (works even without drivers in PATH)
+for /f "tokens=*" %%G in ('wmic path win32_VideoController get name 2^>nul ^| find /i "NVIDIA"') do (
+    set HAS_NVIDIA=1
+    echo NVIDIA GPU detected via device list: %%G
+)
+
+:pytorch_install
 if %HAS_NVIDIA%==1 (
-    echo NVIDIA GPU detected -- installing CUDA PyTorch...
+    echo Installing CUDA PyTorch (cu128)...
     pip install torch --index-url https://download.pytorch.org/whl/cu128
     if errorlevel 1 (
-        echo CUDA PyTorch install failed, falling back to CPU...
-        pip install torch
+        echo CUDA build cu128 failed -- trying cu121...
+        pip install torch --index-url https://download.pytorch.org/whl/cu121
+        if errorlevel 1 (
+            echo CUDA PyTorch install failed, falling back to CPU PyTorch.
+            echo You can retry manually: pip install torch --index-url https://download.pytorch.org/whl/cu128
+            pip install torch
+        )
     )
 ) else (
-    echo Installing CPU PyTorch...
+    echo No NVIDIA GPU detected -- installing CPU PyTorch.
+    echo If you have an NVIDIA GPU and this is wrong, re-run with: install.bat --cuda
     pip install torch
 )
 

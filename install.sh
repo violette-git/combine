@@ -15,11 +15,13 @@ POWERINFER_REPO="https://github.com/Tiiny-AI/PowerInfer"
 
 CPU_ONLY=false
 SKIP_POWERINFER=false
+FORCE_CUDA=false
 
 for arg in "$@"; do
   case $arg in
     --cpu-only)        CPU_ONLY=true ;;
     --skip-powerinfer) SKIP_POWERINFER=true ;;
+    --cuda)            FORCE_CUDA=true ;;
   esac
 done
 
@@ -31,20 +33,41 @@ banner() { echo; echo "=== $* ==="; echo; }
 banner "Step 1/4: Installing Python dependencies"
 
 # Detect NVIDIA GPU
+# On Windows laptops, nvidia-smi.exe is often not in PATH — check known paths.
 HAS_NVIDIA=false
-if ! $CPU_ONLY; then
+if $FORCE_CUDA; then
+  echo "--cuda flag set: forcing CUDA PyTorch install."
+  HAS_NVIDIA=true
+elif ! $CPU_ONLY; then
+  # 1) PATH check
   if command -v nvidia-smi &>/dev/null; then
+    echo "NVIDIA GPU detected via PATH."
     HAS_NVIDIA=true
+  # 2) Common Windows location (Git Bash maps C: to /c)
+  elif [ -f "/c/Program Files/NVIDIA Corporation/NVSMI/nvidia-smi.exe" ]; then
+    echo "NVIDIA GPU detected via NVSMI directory."
+    HAS_NVIDIA=true
+  # 3) nvcc fallback
   elif command -v nvcc &>/dev/null; then
+    echo "NVIDIA GPU detected via nvcc."
     HAS_NVIDIA=true
+  # 4) wmic fallback (Git Bash on Windows)
+  elif command -v wmic &>/dev/null; then
+    if wmic path win32_VideoController get name 2>/dev/null | grep -qi "NVIDIA"; then
+      echo "NVIDIA GPU detected via device list."
+      HAS_NVIDIA=true
+    fi
   fi
 fi
 
 if $HAS_NVIDIA; then
-  echo "NVIDIA GPU detected — installing CUDA PyTorch..."
-  pip install torch --index-url https://download.pytorch.org/whl/cu128 || pip install torch
+  echo "Installing CUDA PyTorch (cu128)..."
+  pip install torch --index-url https://download.pytorch.org/whl/cu128 || \
+  pip install torch --index-url https://download.pytorch.org/whl/cu121 || \
+  pip install torch
 else
-  echo "Installing CPU PyTorch (no NVIDIA GPU detected)..."
+  echo "No NVIDIA GPU detected — installing CPU PyTorch."
+  echo "If you have an NVIDIA GPU and this is wrong, re-run with: bash install.sh --cuda"
   pip install torch
 fi
 
