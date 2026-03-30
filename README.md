@@ -92,45 +92,95 @@ practical inference speeds.
 
 ## Installation
 
-### Option A — Full install (recommended)
+### Windows
 
-Downloads dependencies, clones PowerInfer, builds the C++ binary, and installs
-the `powerquant` Python package in one command:
+**Step 1 — Prerequisites** (one-time setup, skip anything already installed)
 
+| Tool | Install command | Why needed |
+|------|----------------|------------|
+| Python 3.10+ | `winget install Python.Python.3.11` | required |
+| Git | `winget install Git.Git` | required |
+| cmake | `winget install Kitware.CMake` | PowerInfer C++ build only |
+| VS Build Tools | `winget install Microsoft.VisualStudio.2022.BuildTools` | PowerInfer C++ build only |
+
+For VS Build Tools, after installing run the **Visual Studio Installer** and
+select the **"Desktop development with C++"** workload. Close and reopen your
+terminal so the new PATH entries take effect.
+
+**Step 2 — Clone and install**
+
+```bat
+git clone https://github.com/violette-git/combine
+cd combine
+install.bat
+```
+
+Or from Git Bash:
+```bash
+bash install.sh
+```
+
+**Don't want to install cmake / VS Build Tools?**
+The HuggingFace + TurboQuant backend works fine without PowerInfer:
+```bat
+install.bat --skip-powerinfer
+```
+You can always add PowerInfer later once cmake is set up.
+
+---
+
+### Linux / macOS
+
+**Prerequisites (Linux):**
+```bash
+# Ubuntu/Debian
+sudo apt-get install cmake build-essential python3 python3-pip git
+
+# Fedora
+sudo dnf install cmake gcc-c++ python3 python3-pip git
+
+# Arch
+sudo pacman -S cmake base-devel python python-pip git
+```
+
+**Prerequisites (macOS):**
+```bash
+xcode-select --install   # installs clang + make
+brew install cmake python git
+```
+
+**Install:**
 ```bash
 git clone https://github.com/violette-git/combine
 cd combine
 bash install.sh
 ```
 
-**GPU detection is automatic:**
+**Options:**
+```bash
+bash install.sh --cpu-only          # force CPU-only build of PowerInfer
+bash install.sh --skip-powerinfer   # Python/TurboQuant only, no C++ build
+```
+
+GPU detection is automatic:
 - NVIDIA GPU detected → builds with CUDA (`-DLLAMA_CUBLAS=ON`)
 - AMD GPU detected → builds with HIP (`-DLLAMA_HIPBLAS=ON`)
 - No GPU → CPU-only build
 
-**Options:**
+---
+
+### Python-only (all platforms — no C++ build)
+
+If you only want the HuggingFace + TurboQuant backend:
 
 ```bash
-bash install.sh --cpu-only        # force CPU-only build of PowerInfer
-bash install.sh --skip-powerinfer # Python/TurboQuant only (no C++ build)
-```
-
-### Option B — Python-only (TurboQuant / HF backend only)
-
-If you only want the HuggingFace + TurboQuant backend and don't need PowerInfer:
-
-```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu128  # CUDA
+# or: pip install torch                                                 # CPU
 pip install -r requirements.txt
 pip install -e .
 ```
 
-For CUDA-enabled PyTorch (replace `cu128` with your CUDA version):
-
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu128
-pip install -r requirements.txt
-pip install -e .
-```
+---
 
 ### Verify
 
