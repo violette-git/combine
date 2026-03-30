@@ -16,9 +16,12 @@ import os
 import subprocess
 import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Optional, Iterator
 from dataclasses import dataclass
+
+from ..metrics import GenerationResult, KVMetrics, GPUMetrics
 
 
 @dataclass
@@ -168,8 +171,81 @@ class PowerInferBackend:
         Returns:
             Generated text string (not including the prompt)
         """
-        tokens = list(self.generate_stream(model_path, prompt, config))
-        return "".join(tokens)
+        return self.generate_with_metrics(model_path, prompt, config).text
+
+    def generate_with_metrics(
+        self,
+        model_path: str,
+        prompt: str,
+        config: Optional[PowerInferGenConfig] = None,
+    ) -> GenerationResult:
+        """
+        Run inference and return a :class:`~powerquant.metrics.GenerationResult`
+        containing the text plus timing and token-count metrics.
+
+        KV cache metrics are not available for the PowerInfer backend (the C++
+        engine manages its own cache internally). GPU memory metrics require
+        ``torch`` to be installed.
+
+        Example::
+
+            result = backend.generate_with_metrics("model.gguf", "Hello!")
+            print(result.text)
+            print(f"{result.tokens_per_second:.1f} tok/s")
+            result.print_report()
+        """
+        self._require_binary()
+        cfg = config or PowerInferGenConfig()
+
+        # Approximate input token count from whitespace split (no tokenizer available)
+        input_token_estimate = len(prompt.split())
+
+        tokens: list[str] = []
+        t_start = time.perf_counter()
+        t_first = 0.0
+
+        gpu_before = gpu_peak = gpu_after = 0
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+                gpu_before = torch.cuda.memory_allocated() // (1024 * 1024)
+        except ImportError:
+            pass
+
+        for tok in self.generate_stream(model_path, prompt, cfg):
+            if not t_first and tok:
+                t_first = time.perf_counter()
+            tokens.append(tok)
+
+        t_end = time.perf_counter()
+        text = "".join(tokens)
+        latency = t_end - t_start
+        output_token_estimate = len(text.split())
+        tps = output_token_estimate / latency if latency > 0 else 0.0
+        prefill = (t_first - t_start) if t_first else 0.0
+
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_peak = torch.cuda.max_memory_allocated() // (1024 * 1024)
+                gpu_after = torch.cuda.memory_allocated() // (1024 * 1024)
+        except ImportError:
+            pass
+
+        return GenerationResult(
+            text=text,
+            input_tokens=input_token_estimate,
+            output_tokens=output_token_estimate,
+            latency_s=latency,
+            prefill_s=prefill,
+            tokens_per_second=tps,
+            kv=KVMetrics(),  # not available for C++ backend
+            gpu=GPUMetrics(before_mb=gpu_before, peak_mb=gpu_peak, after_mb=gpu_after),
+            backend="powerinfer",
+            model=model_path,
+            weight_quantization="int4",  # PowerInfer uses Q4_0 GGUF
+        )
 
     def generate_stream(
         self,

@@ -38,6 +38,7 @@ Quick start:
 
 from .engine import Engine
 from .config import EngineConfig, TurboQuantConfig, PowerInferConfig
+from .metrics import GenerationResult, KVMetrics, GPUMetrics
 from .turboquant import TurboQuantCache, TurboQuantV3
 
 __version__ = "0.1.0"
@@ -46,6 +47,9 @@ __all__ = [
     "EngineConfig",
     "TurboQuantConfig",
     "PowerInferConfig",
+    "GenerationResult",
+    "KVMetrics",
+    "GPUMetrics",
     "TurboQuantCache",
     "TurboQuantV3",
 ]
