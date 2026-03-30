@@ -151,12 +151,18 @@ def clone_powerinfer():
         run(["git", "clone", POWERINFER_REPO, POWERINFER_DIR])
 
 
+def _msvc_ver_dir(cl_path):
+    """Return VC/Tools/MSVC/<ver> root dir from cl.exe path."""
+    # cl.exe lives at: <ver>/bin/Hostx64/x64/cl.exe  (4 levels deep)
+    d = cl_path
+    for _ in range(4):
+        d = os.path.dirname(d)
+    return d
+
+
 def _find_msvc_include_dir(cl_path):
     """Return MSVC include dir given cl.exe path, or None."""
-    # cl.exe: VC/Tools/MSVC/<ver>/bin/Hostx64/x64/cl.exe
-    # include: VC/Tools/MSVC/<ver>/include/
-    msvc_ver_dir = os.path.dirname(os.path.dirname(os.path.dirname(cl_path)))
-    inc_dir = os.path.join(msvc_ver_dir, "include")
+    inc_dir = os.path.join(_msvc_ver_dir(cl_path), "include")
     return inc_dir if os.path.isdir(inc_dir) else None
 
 
@@ -215,10 +221,7 @@ def _find_winsdk_lib_dirs():
 
 def _find_msvc_lib_dir(cl_path):
     """Return MSVC lib/x64 dir given cl.exe path, or None."""
-    # cl.exe: VC/Tools/MSVC/<ver>/bin/Hostx64/x64/cl.exe
-    # lib at: VC/Tools/MSVC/<ver>/lib/x64/
-    msvc_ver_dir = os.path.dirname(os.path.dirname(os.path.dirname(cl_path)))
-    lib_dir = os.path.join(msvc_ver_dir, "lib", "x64")
+    lib_dir = os.path.join(_msvc_ver_dir(cl_path), "lib", "x64")
     return lib_dir if os.path.isdir(lib_dir) else None
 
 
