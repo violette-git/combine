@@ -94,6 +94,16 @@ practical inference speeds.
 
 ### Windows
 
+> **Which terminal are you using?**
+>
+> | Terminal | Installer to use |
+> |----------|-----------------|
+> | **Git Bash** (the bash prompt that comes with Git for Windows — shows `MINGW64`) | `bash install.sh` |
+> | **Command Prompt** (`cmd.exe`) | `install.bat` |
+> | **PowerShell** | `.\install.bat` |
+>
+> `.bat` files **cannot** be run from Git Bash. Use `bash install.sh` there.
+
 **Step 1 — Prerequisites** (one-time setup, skip anything already installed)
 
 | Tool | Install command | Why needed |
@@ -109,23 +119,33 @@ terminal so the new PATH entries take effect.
 
 **Step 2 — Clone and install**
 
+Git Bash:
+```bash
+git clone https://github.com/violette-git/combine
+cd combine
+bash install.sh
+```
+
+Command Prompt / PowerShell:
 ```bat
 git clone https://github.com/violette-git/combine
 cd combine
 install.bat
 ```
 
-Or from Git Bash:
-```bash
-bash install.sh
-```
+**No cmake / VS Build Tools yet?** Skip the C++ build — the HuggingFace + TurboQuant
+backend works immediately without PowerInfer:
 
-**Don't want to install cmake / VS Build Tools?**
-The HuggingFace + TurboQuant backend works fine without PowerInfer:
+Git Bash:
+```bash
+bash install.sh --skip-powerinfer
+```
+Command Prompt:
 ```bat
 install.bat --skip-powerinfer
 ```
-You can always add PowerInfer later once cmake is set up.
+
+You can always add PowerInfer later by re-running without `--skip-powerinfer` once cmake is installed.
 
 ---
 
