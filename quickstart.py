@@ -151,13 +151,42 @@ def clone_powerinfer():
         run(["git", "clone", POWERINFER_REPO, POWERINFER_DIR])
 
 
+def _find_cl_exe():
+    """Find cl.exe from VS Build Tools via vswhere. Returns path or None."""
+    vswhere = os.path.join(
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        r"Microsoft Visual Studio\Installer\vswhere.exe",
+    )
+    if not os.path.isfile(vswhere):
+        return None
+    r = subprocess.run(
+        [vswhere, "-latest", "-products", "*", "-property", "installationPath"],
+        capture_output=True, text=True,
+    )
+    vs_path = r.stdout.strip()
+    if not vs_path:
+        return None
+    # Walk VC/Tools/MSVC/<version>/bin/Hostx64/x64/cl.exe
+    msvc_root = os.path.join(vs_path, "VC", "Tools", "MSVC")
+    if not os.path.isdir(msvc_root):
+        return None
+    for ver in sorted(os.listdir(msvc_root), reverse=True):
+        cl = os.path.join(msvc_root, ver, "bin", "Hostx64", "x64", "cl.exe")
+        if os.path.isfile(cl):
+            return cl
+    return None
+
+
 def _ensure_ninja():
-    """Install ninja build system via pip if not already present. Returns True if available."""
+    """Install ninja via pip if not present. Returns True if available."""
     if shutil.which("ninja"):
         return True
     print("  Installing ninja build system...")
     try:
         pip("install", "ninja")
+        # pip-installed ninja lands in Scripts/; reload PATH
+        scripts = os.path.join(os.path.dirname(sys.executable), "Scripts")
+        os.environ["PATH"] = scripts + os.pathsep + os.environ.get("PATH", "")
         return bool(shutil.which("ninja"))
     except subprocess.CalledProcessError:
         return False
@@ -197,16 +226,38 @@ def build_powerinfer(has_nvidia, force_cpu):
         "cmake", "-S", POWERINFER_DIR, "-B", build_dir,
         "-DCMAKE_BUILD_TYPE=Release",
     ]
+    extra_env = {}
 
-    # On Windows, cmake defaults to NMake which requires a Developer shell.
-    # Use Ninja instead — it works with VS Build Tools from any terminal.
     if platform.system() == "Windows":
-        if _ensure_ninja():
-            cmake_args += ["-G", "Ninja"]
-            print("  Using Ninja generator.")
+        # cl.exe (MSVC) is not in PATH by default — find it via vswhere.
+        cl = _find_cl_exe()
+        if cl:
+            print(f"  Found MSVC compiler: {cl}")
+            extra_env["CC"] = cl
+            extra_env["CXX"] = cl
+            if _ensure_ninja():
+                cmake_args += ["-G", "Ninja"]
+                print("  Using Ninja + MSVC.")
+        elif shutil.which("gcc"):
+            # Fall back to MinGW GCC (bundled with Git for Windows)
+            print("  MSVC not found — using MinGW GCC (CPU-only build).")
+            extra_env["CC"] = shutil.which("gcc")
+            extra_env["CXX"] = shutil.which("g++") or shutil.which("gcc")
+            if _ensure_ninja():
+                cmake_args += ["-G", "Ninja"]
+            # MinGW + CUDA is unsupported; force CPU
+            force_cpu = True
+            has_nvidia = False
+        else:
+            print()
+            print("  No C++ compiler found in PATH.")
+            print("  VS Build Tools is installed but cl.exe couldn't be located.")
+            print("  Try opening a 'Developer Command Prompt for VS 2022' and re-running.")
+            print("  Skipping PowerInfer build. The HuggingFace backend still works.")
+            return
 
     if force_cpu:
-        print("  Building CPU-only (--cpu-only).")
+        print("  Building CPU-only.")
     elif has_nvidia:
         print("  Building with CUDA.")
         cmake_args.append("-DLLAMA_CUBLAS=ON")
@@ -216,15 +267,16 @@ def build_powerinfer(has_nvidia, force_cpu):
     else:
         print("  No GPU detected — building CPU-only.")
 
+    env = {**os.environ, **extra_env}
     try:
-        run(cmake_args)
+        print(f"  > {' '.join(cmake_args)}")
+        subprocess.run(cmake_args, check=True, env=env)
     except subprocess.CalledProcessError:
         print()
         print("  ERROR: cmake configuration failed.")
-        print("  Make sure a C++ compiler is installed:")
         if platform.system() == "Windows":
-            print("    winget install Microsoft.VisualStudio.2022.BuildTools")
-            print("    (select 'Desktop development with C++' workload)")
+            print("  Make sure the C++ workload is installed in VS Build Tools:")
+            print("    Open 'Visual Studio Installer' → Modify → 'Desktop development with C++'")
         elif platform.system() == "Darwin":
             print("    xcode-select --install")
         else:
@@ -236,8 +288,10 @@ def build_powerinfer(has_nvidia, force_cpu):
 
     cpu_count = os.cpu_count() or 4
     try:
-        run(["cmake", "--build", build_dir, "--config", "Release",
-             f"-j{cpu_count}"])
+        subprocess.run(
+            ["cmake", "--build", build_dir, "--config", "Release", f"-j{cpu_count}"],
+            check=True, env=env,
+        )
         print(f"  PowerInfer built at: {build_dir}")
     except subprocess.CalledProcessError:
         print("  ERROR: Build failed. Check output above.")
