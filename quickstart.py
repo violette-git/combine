@@ -151,6 +151,41 @@ def clone_powerinfer():
         run(["git", "clone", POWERINFER_REPO, POWERINFER_DIR])
 
 
+def _find_winsdk_lib_dirs():
+    """Return list of Windows SDK lib directories for x64 (um and ucrt)."""
+    dirs = []
+    for prog_root in [
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        os.environ.get("ProgramFiles", r"C:\Program Files"),
+    ]:
+        kits_lib = os.path.join(prog_root, "Windows Kits", "10", "lib")
+        if not os.path.isdir(kits_lib):
+            continue
+        try:
+            versions = sorted(
+                [v for v in os.listdir(kits_lib) if v.startswith("10.")],
+                reverse=True,
+            )
+        except OSError:
+            continue
+        for ver in versions:
+            um   = os.path.join(kits_lib, ver, "um",   "x64")
+            ucrt = os.path.join(kits_lib, ver, "ucrt", "x64")
+            if os.path.isfile(os.path.join(um, "kernel32.lib")):
+                dirs += [d for d in [um, ucrt] if os.path.isdir(d)]
+                return dirs  # use first (latest) SDK version found
+    return dirs
+
+
+def _find_msvc_lib_dir(cl_path):
+    """Return MSVC lib/x64 dir given cl.exe path, or None."""
+    # cl.exe: VC/Tools/MSVC/<ver>/bin/Hostx64/x64/cl.exe
+    # lib at: VC/Tools/MSVC/<ver>/lib/x64/
+    msvc_ver_dir = os.path.dirname(os.path.dirname(os.path.dirname(cl_path)))
+    lib_dir = os.path.join(msvc_ver_dir, "lib", "x64")
+    return lib_dir if os.path.isdir(lib_dir) else None
+
+
 def _get_vcvars_env(vs_path):
     """
     Run vcvarsall.bat x64 and return the resulting environment dict.
@@ -305,6 +340,13 @@ def build_powerinfer(has_nvidia, force_cpu):
             vcvars_env = _get_vcvars_env(vs_path)
             if vcvars_env:
                 extra_env = vcvars_env  # includes PATH, INCLUDE, LIB, LIBPATH
+                # Augment LIB explicitly — vcvarsall sometimes omits SDK lib dirs.
+                lib_dirs = _find_msvc_lib_dir(cl)
+                lib_dirs = ([lib_dirs] if lib_dirs else []) + _find_winsdk_lib_dirs()
+                if lib_dirs:
+                    existing = extra_env.get("LIB", os.environ.get("LIB", ""))
+                    extra_env["LIB"] = ";".join(lib_dirs) + (";" + existing if existing else "")
+                    print(f"  LIB set to: {extra_env['LIB'][:120]}...")
                 if _ensure_ninja():
                     cmake_args += ["-G", "Ninja"]
                     print("  Using Ninja + MSVC.")
