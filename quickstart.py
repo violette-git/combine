@@ -151,6 +151,34 @@ def clone_powerinfer():
         run(["git", "clone", POWERINFER_REPO, POWERINFER_DIR])
 
 
+def _find_vs_generator():
+    """Return the best available Visual Studio cmake generator name, or None."""
+    candidates = [
+        ("17", "2022"),
+        ("16", "2019"),
+        ("15", "2017"),
+    ]
+    for version, year in candidates:
+        # Check if VS install exists via vswhere
+        vswhere = os.path.join(
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+            r"Microsoft Visual Studio\Installer\vswhere.exe",
+        )
+        if os.path.isfile(vswhere):
+            r = subprocess.run(
+                [vswhere, "-version", f"[{version},", "-property", "installationPath"],
+                capture_output=True, text=True,
+            )
+            if r.stdout.strip():
+                return f"Visual Studio {version} {year}"
+        # Fallback: check common install dirs
+        for prog in [r"C:\Program Files", r"C:\Program Files (x86)"]:
+            vs_dir = os.path.join(prog, f"Microsoft Visual Studio\\{year}")
+            if os.path.isdir(vs_dir):
+                return f"Visual Studio {version} {year}"
+    return None
+
+
 def build_powerinfer(has_nvidia, force_cpu):
     banner("Step 3/4: Cloning & building PowerInfer")
 
@@ -166,19 +194,33 @@ def build_powerinfer(has_nvidia, force_cpu):
         print("  Skipping C++ build — the HuggingFace + TurboQuant backend still works.")
         return
 
-    # Install PowerInfer Python deps if present
+    # Install PowerInfer Python deps, skipping local path entries (./gguf-py etc.)
     pi_req = os.path.join(POWERINFER_DIR, "requirements.txt")
     if os.path.isfile(pi_req):
-        try:
-            pip("install", "-r", pi_req)
-        except subprocess.CalledProcessError:
-            pass
+        with open(pi_req) as f:
+            reqs = [
+                line.strip() for line in f
+                if line.strip() and not line.startswith("#") and not line.startswith(".")
+            ]
+        if reqs:
+            try:
+                pip("install", *reqs)
+            except subprocess.CalledProcessError:
+                pass
 
     build_dir = os.path.join(POWERINFER_DIR, "build")
     cmake_args = [
         "cmake", "-S", POWERINFER_DIR, "-B", build_dir,
         "-DCMAKE_BUILD_TYPE=Release",
     ]
+
+    # On Windows, cmake defaults to NMake which requires a Developer shell.
+    # Explicitly pick a Visual Studio generator so it works from any terminal.
+    if platform.system() == "Windows":
+        generator = _find_vs_generator()
+        if generator:
+            cmake_args += ["-G", generator]
+            print(f"  Using generator: {generator}")
 
     if force_cpu:
         print("  Building CPU-only (--cpu-only).")
@@ -251,6 +293,8 @@ def _print_cmake_help():
 
 def install_package():
     banner("Step 4/4: Installing powerquant package")
+    # Ensure setuptools is new enough to support editable installs via pyproject.toml
+    pip("install", "--upgrade", "setuptools>=68", "pip")
     pip("install", "-e", REPO_ROOT)
 
 
