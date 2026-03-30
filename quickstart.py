@@ -151,8 +151,30 @@ def clone_powerinfer():
         run(["git", "clone", POWERINFER_REPO, POWERINFER_DIR])
 
 
-def _find_cl_exe():
-    """Find cl.exe from VS Build Tools via vswhere. Returns path or None."""
+def _get_vcvars_env(vs_path):
+    """
+    Run vcvarsall.bat x64 and return the resulting environment dict.
+    This sets up PATH, INCLUDE, LIB, etc. for MSVC + Windows SDK.
+    """
+    vcvarsall = os.path.join(vs_path, "VC", "Auxiliary", "Build", "vcvarsall.bat")
+    if not os.path.isfile(vcvarsall):
+        return None
+    print(f"  Running vcvarsall.bat to set up MSVC environment...")
+    # Run vcvarsall then immediately dump the env
+    cmd = f'"{vcvarsall}" x64 >nul 2>&1 && set'
+    r = subprocess.run(["cmd", "/c", cmd], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    env = {}
+    for line in r.stdout.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            env[k.strip()] = v.strip()
+    return env if env else None
+
+
+def _find_vs_install():
+    """Return VS install path via vswhere, or None."""
     vswhere = os.path.join(
         os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
         r"Microsoft Visual Studio\Installer\vswhere.exe",
@@ -163,18 +185,22 @@ def _find_cl_exe():
         [vswhere, "-latest", "-products", "*", "-property", "installationPath"],
         capture_output=True, text=True,
     )
-    vs_path = r.stdout.strip()
+    return r.stdout.strip() or None
+
+
+def _find_cl_exe():
+    """Find cl.exe from VS Build Tools via vswhere. Returns (cl_path, vs_install_path) or (None, None)."""
+    vs_path = _find_vs_install()
     if not vs_path:
-        return None
-    # Walk VC/Tools/MSVC/<version>/bin/Hostx64/x64/cl.exe
+        return None, None
     msvc_root = os.path.join(vs_path, "VC", "Tools", "MSVC")
     if not os.path.isdir(msvc_root):
-        return None
+        return None, None
     for ver in sorted(os.listdir(msvc_root), reverse=True):
         cl = os.path.join(msvc_root, ver, "bin", "Hostx64", "x64", "cl.exe")
         if os.path.isfile(cl):
-            return cl
-    return None
+            return cl, vs_path
+    return None, None
 
 
 def _ensure_ninja():
@@ -229,32 +255,38 @@ def build_powerinfer(has_nvidia, force_cpu):
     extra_env = {}
 
     if platform.system() == "Windows":
-        # cl.exe (MSVC) is not in PATH by default — find it via vswhere.
-        cl = _find_cl_exe()
-        if cl:
+        # cl.exe needs the full MSVC + Windows SDK env from vcvarsall.bat.
+        cl, vs_path = _find_cl_exe()
+        if cl and vs_path:
             print(f"  Found MSVC compiler: {cl}")
-            extra_env["CC"] = cl
-            extra_env["CXX"] = cl
-            if _ensure_ninja():
-                cmake_args += ["-G", "Ninja"]
-                print("  Using Ninja + MSVC.")
-        elif shutil.which("gcc"):
-            # Fall back to MinGW GCC (bundled with Git for Windows)
-            print("  MSVC not found — using MinGW GCC (CPU-only build).")
-            extra_env["CC"] = shutil.which("gcc")
-            extra_env["CXX"] = shutil.which("g++") or shutil.which("gcc")
-            if _ensure_ninja():
-                cmake_args += ["-G", "Ninja"]
-            # MinGW + CUDA is unsupported; force CPU
-            force_cpu = True
-            has_nvidia = False
-        else:
-            print()
-            print("  No C++ compiler found in PATH.")
-            print("  VS Build Tools is installed but cl.exe couldn't be located.")
-            print("  Try opening a 'Developer Command Prompt for VS 2022' and re-running.")
-            print("  Skipping PowerInfer build. The HuggingFace backend still works.")
-            return
+            vcvars_env = _get_vcvars_env(vs_path)
+            if vcvars_env:
+                extra_env = vcvars_env  # includes PATH, INCLUDE, LIB, LIBPATH
+                if _ensure_ninja():
+                    cmake_args += ["-G", "Ninja"]
+                    print("  Using Ninja + MSVC.")
+            else:
+                print("  WARNING: vcvarsall.bat failed — falling back to GCC.")
+                cl = None
+        if not cl:
+            if shutil.which("gcc"):
+                # Fall back to MinGW GCC (bundled with Git for Windows)
+                print("  Using MinGW GCC (CPU-only build).")
+                extra_env["CC"] = shutil.which("gcc")
+                extra_env["CXX"] = shutil.which("g++") or shutil.which("gcc")
+                if _ensure_ninja():
+                    cmake_args += ["-G", "Ninja"]
+                # MinGW + CUDA is unsupported; force CPU
+                force_cpu = True
+                has_nvidia = False
+            else:
+                print()
+                print("  No C++ compiler found.")
+                print("  VS Build Tools is installed — open 'Visual Studio Installer'")
+                print("  → Modify → tick 'Desktop development with C++' → Install.")
+                print("  Then re-run:  python quickstart.py")
+                print("  Skipping PowerInfer build. The HuggingFace backend still works.")
+                return
 
     if force_cpu:
         print("  Building CPU-only.")
