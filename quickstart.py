@@ -313,10 +313,10 @@ def build_powerinfer(has_nvidia, force_cpu):
                 rc = _find_winsdk_tool("rc.exe")
                 mt = _find_winsdk_tool("mt.exe")
                 if rc:
-                    cmake_args.append(f"-DCMAKE_RC_COMPILER={rc}")
+                    cmake_args.append(f"-DCMAKE_RC_COMPILER={rc.replace(os.sep, '/')}")
                     print(f"  Found rc.exe: {rc}")
                 if mt:
-                    cmake_args.append(f"-DCMAKE_MT={mt}")
+                    cmake_args.append(f"-DCMAKE_MT={mt.replace(os.sep, '/')}")
                     print(f"  Found mt.exe: {mt}")
             else:
                 print("  WARNING: vcvarsall.bat failed — falling back to GCC.")
