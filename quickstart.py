@@ -158,19 +158,34 @@ def _get_vcvars_env(vs_path):
     """
     vcvarsall = os.path.join(vs_path, "VC", "Auxiliary", "Build", "vcvarsall.bat")
     if not os.path.isfile(vcvarsall):
+        print(f"  vcvarsall.bat not found at: {vcvarsall}")
         return None
-    print(f"  Running vcvarsall.bat to set up MSVC environment...")
-    # Run vcvarsall then immediately dump the env
-    cmd = f'"{vcvarsall}" x64 >nul 2>&1 && set'
-    r = subprocess.run(["cmd", "/c", cmd], capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
+    print(f"  Running vcvarsall.bat x64...")
+    # Use `call` so vcvarsall output goes to stdout (captured), then `set` dumps the env.
+    # Don't redirect to nul — we need to see errors if it fails.
+    cmd = f'call "{vcvarsall}" x64 && set'
+    r = subprocess.run(
+        ["cmd", "/c", cmd],
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
     env = {}
     for line in r.stdout.splitlines():
         if "=" in line:
             k, _, v = line.partition("=")
-            env[k.strip()] = v.strip()
-    return env if env else None
+            k = k.strip()
+            # Skip lines that aren't real env var names (vcvarsall banner lines etc.)
+            if k and " " not in k:
+                env[k] = v.strip()
+    if not env:
+        print(f"  vcvarsall.bat produced no environment (exit code {r.returncode}).")
+        if r.stderr.strip():
+            print(f"  stderr: {r.stderr.strip()[:400]}")
+        if r.stdout.strip():
+            print(f"  stdout: {r.stdout.strip()[:400]}")
+        return None
+    return env
 
 
 def _find_vs_install():
