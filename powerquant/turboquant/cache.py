@@ -40,6 +40,11 @@ class TurboQuantCache(DynamicCache):
         seed: int = 42,
     ):
         super().__init__()
+        # Newer transformers versions may not initialize these in __init__
+        if not hasattr(self, "key_cache"):
+            self.key_cache = []
+        if not hasattr(self, "value_cache"):
+            self.value_cache = []
         self.key_bits = key_bits
         self.value_bits = value_bits
         self.residual_window = residual_window
